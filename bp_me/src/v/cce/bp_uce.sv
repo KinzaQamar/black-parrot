@@ -24,6 +24,33 @@ module bp_uce
     , parameter `BSG_INV_PARAM(metadata_latency_p)
 
     `declare_bp_cache_engine_if_widths(paddr_width_p, ctag_width_p, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache)
+
+    , localparam bank_width_lp = block_width_p / assoc_p
+    , localparam num_dwords_per_bank_lp = bank_width_lp / dword_width_gp
+    , localparam byte_offset_width_lp  = `BSG_SAFE_CLOG2(bank_width_lp>>3)
+    // Words per line == associativity
+    , localparam bank_offset_width_lp  = `BSG_SAFE_CLOG2(assoc_p)
+    , localparam block_offset_width_lp = (assoc_p > 1) ? (bank_offset_width_lp + byte_offset_width_lp) : byte_offset_width_lp
+    , localparam index_width_lp = `BSG_SAFE_CLOG2(sets_p)
+    , localparam way_width_lp = `BSG_SAFE_CLOG2(assoc_p)
+    , localparam block_size_in_fill_lp = block_width_p / fill_width_p
+    , localparam fill_size_in_bank_lp = fill_width_p / bank_width_lp
+    , localparam sub_fill_size_in_bank_lp = bank_width_lp / fill_width_p
+    , localparam fill_cnt_width_lp = `BSG_SAFE_CLOG2(block_size_in_fill_lp)
+    , localparam fill_offset_width_lp = (block_offset_width_lp - fill_cnt_width_lp)
+    , localparam bank_sub_offset_width_lp = $clog2(fill_size_in_bank_lp)
+    , localparam sub_bank_sub_offset_width_lp = $clog2(sub_fill_size_in_bank_lp)
+
+    // Fill size parameterisations -
+    , localparam bp_bedrock_msg_size_e block_msg_size_lp = (fill_width_p == 512)
+                                                           ? e_bedrock_msg_size_64
+                                                           : (fill_width_p == 256)
+                                                             ? e_bedrock_msg_size_32
+                                                             : (fill_width_p == 128)
+                                                               ? e_bedrock_msg_size_16
+                                                               : (fill_width_p == 64)
+                                                                 ? e_bedrock_msg_size_8
+                                                                 : e_bedrock_msg_size_64
     )
    (input                                            clk_i
     , input                                          reset_i
@@ -73,31 +100,6 @@ module bp_uce
   // parameter checks
   if ((metadata_latency_p > 1))
     $error("metadata needs to arrive <2 cycles after the request");
-
-  localparam bank_width_lp = block_width_p / assoc_p;
-  localparam num_dwords_per_bank_lp = bank_width_lp / dword_width_gp;
-  localparam byte_offset_width_lp  = `BSG_SAFE_CLOG2(bank_width_lp>>3);
-  // Words per line == associativity
-  localparam bank_offset_width_lp  = `BSG_SAFE_CLOG2(assoc_p);
-  localparam block_offset_width_lp = (assoc_p > 1) ? (bank_offset_width_lp + byte_offset_width_lp) : byte_offset_width_lp;
-  localparam index_width_lp = `BSG_SAFE_CLOG2(sets_p);
-  localparam way_width_lp = `BSG_SAFE_CLOG2(assoc_p);
-  localparam block_size_in_fill_lp = block_width_p / fill_width_p;
-  localparam fill_size_in_bank_lp = fill_width_p / bank_width_lp;
-  localparam fill_cnt_width_lp = `BSG_SAFE_CLOG2(block_size_in_fill_lp);
-  localparam fill_offset_width_lp = `BSG_SAFE_CLOG2(fill_width_p>>3);
-  localparam bank_sub_offset_width_lp = $clog2(fill_size_in_bank_lp);
-
-  // Block size parameterisations
-  localparam bp_bedrock_msg_size_e block_msg_size_lp = (block_width_p == 512)
-                                                       ? e_bedrock_msg_size_64
-                                                       : (block_width_p == 256)
-                                                         ? e_bedrock_msg_size_32
-                                                         : (block_width_p == 128)
-                                                           ? e_bedrock_msg_size_16
-                                                           : (block_width_p == 64)
-                                                             ? e_bedrock_msg_size_8
-                                                             : e_bedrock_msg_size_64;
 
   `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p);
   `declare_bp_cache_engine_if(paddr_width_p, ctag_width_p, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache);
@@ -310,7 +312,74 @@ module bp_uce
 
   assign cache_req_complete_o = cache_req_done & ~(uc_store_v_r | wt_store_v_r);
 
+  // When fill_width_p < block_width_p, multicycle fill and writeback is implemented in cache flush write,
+  // cache miss load with and without dirty data writeback.
+  // To track the progress of these multicycle opeation, two counters, fill_cnt and mem_cmd_cnt are added
+  // In addition, mem_cmd_cnt is used to generated the addr in mem_cmd_o to request data from L2 and
+  // to write back dirty data to L2 in the size of fill_width.
+  logic [fill_cnt_width_lp-1:0] mem_cmd_cnt;
+  logic [block_size_in_fill_lp-1:0] fill_index_shift;
+  logic [bank_offset_width_lp-1:0] bank_index;
+  logic [byte_offset_width_lp-1:0] sub_bank_index;
+  logic [paddr_width_p-1:0] critical_addr;
+
+  assign bank_index = (fill_size_in_bank_lp != 0)
+                       ? mem_cmd_cnt << (bank_sub_offset_width_lp + sub_bank_sub_offset_width_lp)
+                       : mem_cmd_cnt >> (bank_sub_offset_width_lp + sub_bank_sub_offset_width_lp);
+
+  assign sub_bank_index = (fill_size_in_bank_lp != 0)
+                           ? byte_offset_width_lp'(0)
+                           : {'0, mem_cmd_cnt} << fill_offset_width_lp;
+  // fill_index_shift corresponds to a single data bank in a direct-mapped cache or for sub-bank fills
   wire [block_size_in_fill_lp-1:0] fill_index_shift = {{(assoc_p != 1){fsm_resp_addr_li[byte_offset_width_lp+:bank_offset_width_lp] >> bank_sub_offset_width_lp}}, {(assoc_p == 1){'0}}};
+
+  logic fill_up, fill_done, mem_cmd_up, mem_cmd_done;
+  if (fill_width_p == block_width_p)
+    begin : fill_equals_block
+      assign mem_cmd_cnt = 1'b0;
+      assign fill_done = 1'b1;
+      assign mem_cmd_done = 1'b1;
+      assign critical_addr = {cache_req_r.addr[paddr_width_p-1:block_offset_width_lp], block_offset_width_lp'(0)};
+    end
+  else
+    begin : fill_less_than_block
+      logic [fill_cnt_width_lp-1:0] first_cmd_cnt, last_cmd_cnt;
+      logic [fill_cnt_width_lp-1:0] fill_cnt;
+      bsg_counter_clear_up
+       #(.max_val_p(block_size_in_fill_lp-1)
+         ,.init_val_p(0)
+         ,.disable_overflow_warning_p(1)
+         )
+       fill_counter
+        (.clk_i(clk_i)
+         ,.reset_i(reset_i)
+
+         ,.clear_i('0)
+         ,.up_i(fill_up)
+
+         ,.count_o(fill_cnt)
+         );
+      assign fill_done = (fill_cnt == block_size_in_fill_lp-1);
+
+      bsg_counter_set_en
+       #(.max_val_p(block_size_in_fill_lp-1)
+         ,.reset_val_p(0)
+         )
+       mem_cmd_counter
+        (.clk_i(clk_i)
+         ,.reset_i(reset_i)
+
+         ,.set_i(cache_req_yumi_o)
+         ,.en_i(mem_cmd_up)
+         ,.val_i(first_cmd_cnt)
+         ,.count_o(mem_cmd_cnt)
+         );
+
+      assign first_cmd_cnt = cache_req_cast_i.addr[block_offset_width_lp-1-:fill_cnt_width_lp];
+      assign last_cmd_cnt = (cache_req_r.addr[fill_offset_width_lp+:fill_cnt_width_lp] - fill_cnt_width_lp'(1));
+      assign mem_cmd_done = (mem_cmd_cnt == last_cmd_cnt);
+      assign critical_addr = {cache_req_r.addr[paddr_width_p-1:fill_offset_width_lp], (fill_offset_width_lp)'(0)};
+    end
 
   logic [index_width_lp-1:0] index_cnt;
   logic index_up;
@@ -673,11 +742,26 @@ module bp_uce
             data_mem_pkt_cast_o.way_id     = fsm_resp_header_li.payload.way_id[0+:`BSG_SAFE_CLOG2(assoc_p)];
             data_mem_pkt_cast_o.data       = fsm_resp_data_li;
             data_mem_pkt_cast_o.fill_index = 1'b1 << fill_index_shift;
+            // BSG_MAX used here to suppress 'Illegal Part Select' errors from VCS
+            data_mem_pkt_cast_o.sub_fill_index = (fill_size_in_bank_lp == 0) 
+                                                  ? mem_resp_cast_i.header.addr[byte_offset_width_lp-1-:`BSG_MAX(`BSG_SAFE_CLOG2(sub_fill_size_in_bank_lp), 1)]
+                                                  : '0;
             data_mem_pkt_v_o = load_resp_v_li;
 
-            load_resp_yumi_lo = tag_mem_pkt_yumi_i & data_mem_pkt_yumi_i;
-            cache_req_done = fsm_resp_done & load_resp_yumi_lo;
-            state_n = cache_req_done ? e_writeback_write_req : e_writeback_read_req;
+            fill_up = tag_mem_pkt_yumi_i & data_mem_pkt_yumi_i;
+            mem_resp_yumi_lo = tag_mem_pkt_yumi_i & data_mem_pkt_yumi_i;
+            // request next sub-block
+            mem_cmd_cast_o.header.msg_type = e_bedrock_mem_rd;
+            mem_cmd_cast_o.header.addr     = {cache_req_r.addr[paddr_width_p-1:block_offset_width_lp], {assoc_p > 1{bank_index}}, byte_offset_width_lp'(0)};
+            mem_cmd_cast_o.header.size     = block_msg_size_lp;
+            mem_cmd_cast_payload.way_id    = lce_assoc_p'(cache_req_metadata_r.hit_or_repl_way);
+            mem_cmd_cast_payload.lce_id    = lce_id_i;
+            mem_cmd_cast_o.header.payload  = mem_cmd_cast_payload;
+            mem_cmd_v_o = ~mem_cmd_done_r & ~cache_req_credits_full_o;
+            mem_cmd_up = mem_cmd_yumi_i;
+
+            cache_req_complete_o = fill_done & mem_cmd_done_r & tag_mem_pkt_yumi_i & data_mem_pkt_yumi_i;
+            state_n = cache_req_complete_o ? e_writeback_write_req : e_writeback_read_req;
           end
         e_writeback_write_req:
           begin
@@ -706,6 +790,9 @@ module bp_uce
             data_mem_pkt_cast_o.way_id = fsm_resp_header_li.payload.way_id[0+:`BSG_SAFE_CLOG2(assoc_p)];
             data_mem_pkt_cast_o.data   = fsm_resp_data_li;
             data_mem_pkt_cast_o.fill_index = 1'b1 << fill_index_shift;
+            data_mem_pkt_cast_o.sub_fill_index = (fill_size_in_bank_lp == 0) 
+                                                  ? mem_resp_cast_i.header.addr[byte_offset_width_lp-1-:`BSG_MAX(`BSG_SAFE_CLOG2(sub_fill_size_in_bank_lp), 1)]
+                                                  : '0;
             data_mem_pkt_v_o = load_resp_v_li;
 
             load_resp_yumi_lo = tag_mem_pkt_yumi_i & data_mem_pkt_yumi_i;
