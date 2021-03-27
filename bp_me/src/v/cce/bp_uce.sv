@@ -35,11 +35,8 @@ module bp_uce
     , localparam way_width_lp = `BSG_SAFE_CLOG2(assoc_p)
     , localparam block_size_in_fill_lp = block_width_p / fill_width_p
     , localparam fill_size_in_bank_lp = fill_width_p / bank_width_lp
-    , localparam bank_size_in_fill_lp = bank_width_lp / fill_width_p
     , localparam fill_cnt_width_lp = `BSG_SAFE_CLOG2(block_size_in_fill_lp)
     , localparam fill_offset_width_lp = (block_offset_width_lp - fill_cnt_width_lp)
-    , localparam bank_sub_offset_width_lp = $clog2(fill_size_in_bank_lp)
-    , localparam sub_bank_sub_offset_width_lp = $clog2(bank_size_in_fill_lp)
 
     // Fill size parameterisations -
     , localparam bp_bedrock_msg_size_e block_msg_size_lp = (fill_width_p == 512)
@@ -318,14 +315,12 @@ module bp_uce
   // In addition, mem_cmd_cnt is used to generated the addr in mem_cmd_o to request data from L2 and
   // to write back dirty data to L2 in the size of fill_width.
   logic [fill_cnt_width_lp-1:0] mem_cmd_cnt;
-  logic [block_size_in_fill_lp-1:0] fill_index_shift;
-  logic [bank_offset_width_lp-1:0] bank_index;
-  logic [byte_offset_width_lp-1:0] sub_bank_index;
+  logic [`BSG_SAFE_CLOG2(block_size_in_fill_lp)-1:0] fill_index;
+  logic [block_offset_width_lp-1:0] block_index;
   logic [paddr_width_p-1:0] critical_addr;
 
-  assign bank_index = (fill_size_in_bank_lp != 0)
-                       ? mem_cmd_cnt << (bank_sub_offset_width_lp + sub_bank_sub_offset_width_lp)
-                       : mem_cmd_cnt >> (bank_sub_offset_width_lp + sub_bank_sub_offset_width_lp);
+  // block index = (bank index << byte_offset) | byte_in_bank
+  assign block_index = mem_cmd_cnt << fill_offset_width_lp;
 
   assign sub_bank_index = (fill_size_in_bank_lp != 0)
                            ? byte_offset_width_lp'(0)
@@ -711,7 +706,7 @@ module bp_uce
             data_mem_pkt_cast_o.opcode = e_cache_data_mem_read;
             data_mem_pkt_cast_o.index  = cache_req_r.addr[block_offset_width_lp+:index_width_lp];
             data_mem_pkt_cast_o.way_id = cache_req_metadata_r.hit_or_repl_way;
-            data_mem_pkt_cast_o.fill_index = {block_size_in_fill_lp{1'b1}};
+            data_mem_pkt_cast_o.fill_index = '1;
             data_mem_pkt_v_o = 1'b1;
 
             tag_mem_pkt_cast_o.opcode  = e_cache_tag_mem_read;
