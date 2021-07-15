@@ -237,3 +237,5 @@ module bp_be_pipe_fma
 
 endmodule
 
+`BSG_ABSTRACT_MODULE(bp_be_pipe_fma)
+

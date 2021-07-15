@@ -307,7 +307,6 @@ module bp_uce
   wire uc_load_v_r    = cache_req_v_r & cache_req_r.msg_type inside {e_uc_load};
   wire uc_store_v_r   = cache_req_v_r & cache_req_r.msg_type inside {e_uc_store};
   wire uc_amo_v_r     = cache_req_v_r & cache_req_r.msg_type inside {e_uc_amo};
-  wire uc_hit_v_r     = cache_req_v_r & cache_req_r.hit & (uc_load_v_r | uc_store_v_r | uc_amo_v_r);
 
   assign cache_req_complete_o = cache_req_done & ~(uc_store_v_r | wt_store_v_r);
 
