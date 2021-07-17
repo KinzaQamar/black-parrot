@@ -117,7 +117,8 @@ module bp_nonsynth_host
   `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p);
   bp_bedrock_mem_header_s mem_cmd_header_li;
   assign mem_cmd_header_li = mem_cmd_header_i;
-  wire [hio_width_p-1:0] hio_id = mem_cmd_header_li.addr[paddr_width_p-1-:hio_width_p];
+  wire [hio_width_p-1:0] hio_id = mem_cmd_header_li.addr[paddr_width_p-1-:hio_width_p];  logic finish_all_data_cmd_v;
+
   always_comb
     if (mem_cmd_v_i & (hio_id != '0))
       $display("Warning: Accessing hio %0h. Sending loopback message!", hio_id);
@@ -180,6 +181,12 @@ module bp_nonsynth_host
       if (&finish_r)
         begin
           $display("All cores finished! Terminating...");
+          $finish();
+        end
+
+      if (finish_all_data_cmd_v)
+        begin
+          $display("Finish all command received!. Terminating...");
           $finish();
         end
     end
