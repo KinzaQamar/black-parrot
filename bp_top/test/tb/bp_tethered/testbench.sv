@@ -329,7 +329,7 @@ module testbench
      ,.finish_o(finish_lo)
      );
 
-  if (1)
+  if (no_bind_p == 0)
     begin : do_bind
       bind bp_be_top
         bp_nonsynth_perf
