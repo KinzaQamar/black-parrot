@@ -673,6 +673,7 @@
     ,e_bp_unicore_writethrough_cfg                  = 11
     ,e_bp_unicore_l2_atomic_cfg                     = 10
     ,e_bp_unicore_l1_wide_fill_cfg                  = 9
+    ,e_bp_unicore_l1_subbank_cfg                    = 10
     ,e_bp_unicore_l1_wide_cfg                       = 8
     ,e_bp_unicore_l1_hetero_cfg                     = 7
     ,e_bp_unicore_l1_tiny_cfg                       = 6
