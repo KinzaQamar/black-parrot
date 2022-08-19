@@ -23,7 +23,8 @@ module bp_core
  #(parameter bp_params_e bp_params_p = e_bp_default_cfg
    `declare_bp_proc_params(bp_params_p)
    `declare_bp_bedrock_lce_if_widths(paddr_width_p, lce_id_width_p, cce_id_width_p, lce_assoc_p)
-   `declare_bp_bedrock_mem_if_widths(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p)
+   `declare_bp_cache_engine_if_widths(paddr_width_p, ctag_width_p, icache_sets_p, icache_assoc_p, dword_width_gp, icache_block_width_p, icache_fill_width_p, icache)
+   `declare_bp_cache_engine_if_widths(paddr_width_p, ctag_width_p, dcache_sets_p, dcache_assoc_p, dword_width_gp, dcache_block_width_p, dcache_fill_width_p, dcache)
 
    , localparam cfg_bus_width_lp = `bp_cfg_bus_width(vaddr_width_p, hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p)
    , localparam dma_pkt_width_lp = `bsg_cache_dma_pkt_width(daddr_width_p)
@@ -89,11 +90,10 @@ module bp_core
    , input [1:0]                                         lce_resp_data_ready_and_i
    , output logic [1:0]                                  lce_resp_last_o
 
-   , input [mem_fwd_header_width_lp-1:0]                 mem_fwd_header_i
-   , input [bedrock_data_width_p-1:0]                    mem_fwd_data_i
-   , input                                               mem_fwd_v_i
-   , output logic                                        mem_fwd_ready_and_o
-   , input                                               mem_fwd_last_i
+  `declare_bp_cfg_bus_s(vaddr_width_p, hio_width_p, core_id_width_p, cce_id_width_p, lce_id_width_p);
+  `declare_bp_bedrock_lce_if(paddr_width_p, lce_id_width_p, cce_id_width_p, lce_assoc_p);
+  `declare_bp_cache_engine_if(paddr_width_p, ctag_width_p, icache_sets_p, icache_assoc_p, dword_width_gp, icache_block_width_p, icache_fill_width_p, icache);
+  `declare_bp_cache_engine_if(paddr_width_p, ctag_width_p, dcache_sets_p, dcache_assoc_p, dword_width_gp, dcache_block_width_p, dcache_fill_width_p, dcache);
 
    , output logic [mem_rev_header_width_lp-1:0]          mem_rev_header_o
    , output logic [bedrock_data_width_p-1:0]             mem_rev_data_o
