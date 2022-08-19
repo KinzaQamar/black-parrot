@@ -58,7 +58,7 @@ module bp_lce_fill
    , localparam bp_bedrock_msg_size_e cmd_block_size_lp = bp_bedrock_msg_size_e'(`BSG_SAFE_CLOG2(block_width_p/8))
 
    `declare_bp_bedrock_lce_if_widths(paddr_width_p, lce_id_width_p, cce_id_width_p, lce_assoc_p)
-   `declare_bp_cache_engine_if_widths(paddr_width_p, ctag_width_p, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache)
+   `declare_bp_cache_engine_if_widths(paddr_width_p, lce_ctag_width_lp, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache)
   )
   (
     input                                            clk_i
@@ -105,12 +105,15 @@ module bp_lce_fill
     );
 
   `declare_bp_bedrock_lce_if(paddr_width_p, lce_id_width_p, cce_id_width_p, lce_assoc_p);
-  `declare_bp_cache_engine_if(paddr_width_p, ctag_width_p, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache);
+  `declare_bp_cache_engine_if(paddr_width_p, lce_ctag_width_lp, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache);
   `bp_cast_i(bp_bedrock_lce_fill_header_s, lce_fill_header);
   `bp_cast_o(bp_bedrock_lce_resp_header_s, lce_resp_header);
 
   `bp_cast_o(bp_cache_data_mem_pkt_s, data_mem_pkt);
   `bp_cast_o(bp_cache_tag_mem_pkt_s, tag_mem_pkt);
+
+  //Derived lce_ctag_width_lp 
+  localparam lce_ctag_width_lp = caddr_width_p - (block_byte_offset_lp + lg_sets_lp);
 
   // LCE fill header buffer
   // Required for handshake conversion for cache interface packets
@@ -235,13 +238,13 @@ module bp_lce_fill
 
   // common fields from LCE Fill used by FSM
   logic [lg_sets_lp-1:0] lce_fill_addr_index;
-  logic [ctag_width_p-1:0] lce_fill_addr_tag;
+  logic [lce_ctag_width_lp-1:0] lce_fill_addr_tag;
   logic [lg_assoc_lp-1:0] lce_fill_way_id;
 
   assign lce_fill_addr_index = (sets_p > 1)
                                ? lce_fill_header_cast_li.addr[block_byte_offset_lp+:lg_sets_lp]
                                : '0;
-  assign lce_fill_addr_tag = lce_fill_header_cast_li.addr[tag_offset_lp+:ctag_width_p];
+  assign lce_fill_addr_tag = lce_fill_header_cast_li.addr[tag_offset_lp+:lce_ctag_width_lp];
   assign lce_fill_way_id = lce_fill_header_cast_li.payload.way_id[0+:lg_assoc_lp];
 
   always_comb begin
