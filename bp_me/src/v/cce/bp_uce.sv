@@ -23,7 +23,7 @@ module bp_uce
     , parameter `BSG_INV_PARAM(fill_width_p)
     , parameter `BSG_INV_PARAM(metadata_latency_p)
 
-    `declare_bp_cache_engine_if_widths(paddr_width_p, ctag_width_p, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache)
+    `declare_bp_cache_engine_if_widths(paddr_width_p, ctag_width_lp, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache)
     )
    (input                                            clk_i
     , input                                          reset_i
@@ -88,6 +88,9 @@ module bp_uce
   localparam fill_offset_width_lp = `BSG_SAFE_CLOG2(fill_width_p>>3);
   localparam bank_sub_offset_width_lp = $clog2(fill_size_in_bank_lp);
 
+	// Cache tag width
+	localparam ctag_width_lp = caddr_width_p - (block_offset_width_lp + index_width_lp);
+
   // Block size parameterisations
   localparam bp_bedrock_msg_size_e block_msg_size_lp = (block_width_p == 512)
                                                        ? e_bedrock_msg_size_64
@@ -100,7 +103,7 @@ module bp_uce
                                                              : e_bedrock_msg_size_64;
 
   `declare_bp_bedrock_mem_if(paddr_width_p, did_width_p, lce_id_width_p, lce_assoc_p);
-  `declare_bp_cache_engine_if(paddr_width_p, ctag_width_p, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache);
+  `declare_bp_cache_engine_if(paddr_width_p, ctag_width_lp, sets_p, assoc_p, dword_width_gp, block_width_p, fill_width_p, cache);
 
   `bp_cast_i(bp_cache_req_s, cache_req);
   `bp_cast_i(bp_cache_req_metadata_s, cache_req_metadata);
@@ -666,7 +669,7 @@ module bp_uce
             // We fill in M because we don't want to trigger additional coherence traffic
             tag_mem_pkt_cast_o.way_id = fsm_resp_header_li.payload.way_id[0+:`BSG_SAFE_CLOG2(assoc_p)];
             tag_mem_pkt_cast_o.state  = e_COH_M;
-            tag_mem_pkt_cast_o.tag    = fsm_resp_addr_li[block_offset_width_lp+index_width_lp+:ctag_width_p];
+            tag_mem_pkt_cast_o.tag    = fsm_resp_addr_li[block_offset_width_lp+index_width_lp+:ctag_width_lp];
             tag_mem_pkt_v_o = load_resp_v_li;
 
             data_mem_pkt_cast_o.opcode     = e_cache_data_mem_write;
@@ -699,7 +702,7 @@ module bp_uce
             // We fill in M because we don't want to trigger additional coherence traffic
             tag_mem_pkt_cast_o.way_id = fsm_resp_header_li.payload.way_id[0+:`BSG_SAFE_CLOG2(assoc_p)];
             tag_mem_pkt_cast_o.state  = e_COH_M;
-            tag_mem_pkt_cast_o.tag    = fsm_resp_addr_li[block_offset_width_lp+index_width_lp+:ctag_width_p];
+            tag_mem_pkt_cast_o.tag    = fsm_resp_addr_li[block_offset_width_lp+index_width_lp+:ctag_width_lp];
             tag_mem_pkt_v_o = load_resp_v_li;
 
             data_mem_pkt_cast_o.opcode = e_cache_data_mem_write;
