@@ -635,4 +635,5 @@ module bp_be_instr_decoder
       if (illegal_instr_o)
         decode_cast_o = '0;
     end
+    
 endmodule
